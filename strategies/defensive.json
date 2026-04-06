@@ -1,0 +1,53 @@
+{
+  "name": "defensive",
+  "description": "防御型策略：重仓 buffett(高股息) 和 valuation(低估值)，严格风控，主要用于组合对冲",
+
+  "rating_weights": {
+    "screener": 0.20,
+    "valuation": 0.40,
+    "buffett": 0.40,
+    "munger": 0.0,
+    "chan": 0.0
+  },
+  "rating_thresholds": {
+    "A+": 85, "A": 70, "B": 55, "C": 40
+  },
+
+  "buy_ratings": ["A+", "A"],
+  "position_sizes": { "A+": 0.20, "A": 0.15 },
+  "resonance_boost": 1.0,
+  "high_score_boost": 1.0,
+  "high_score_threshold": 90,
+  "max_single_position": 0.20,
+  "max_holdings": 5,
+
+  "stop_loss_pct": -0.05,
+  "take_profit_pct": 0.15,
+  "sell_on_downgrade_to": ["B", "C", "D"],
+
+  "checkpoint_frequency": "monthly",
+  "initial_capital": 100000,
+  "min_rebalance_diff": 1000,
+  "lot_size": 100,
+
+  "adaptive_weights": false,
+
+  "atr_stop_enabled": false,
+  "atr_stop_multiplier": 2.0,
+  "atr_period": 20,
+  "trailing_stop_enabled": true,
+  "trailing_stop_pct": 0.10,
+  "time_stop_months": 3,
+
+  "market_regime_enabled": false,
+
+  "sector_rotation_enabled": false,
+
+  "position_concentration_enabled": false,
+
+  "scaling_enabled": false,
+  "weekly_risk_check": false,
+  "portfolio_opt_enabled": false,
+  "resonance_strength_enabled": false,
+  "contrarian_enabled": false
+}

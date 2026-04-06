@@ -24,10 +24,14 @@ def _compute_rating(weighted_score: float) -> str:
     return "D"
 
 
-def run_rating(analysis_date: date | None = None) -> int:
+def run_rating(analysis_date: date | None = None, use_adaptive: bool = False) -> int:
     """
     对当日 stock_signals 中的所有股票计算综合评级。
     返回写入 integrated_ratings 的行数。
+
+    Args:
+        use_adaptive: 启用自适应权重（基于历史信号准确率动态调整）。
+                     默认 False，使用 config.RATING_WEIGHTS 静态权重。
     """
     analysis_date = analysis_date or date.today()
     engine = get_finance_engine()
@@ -56,6 +60,19 @@ def run_rating(analysis_date: date | None = None) -> int:
     # 3. 读取 Risk Manager 仓位上限
     risk_limits = get_risk_limits(analysis_date)
 
+    # 3.1 计算自适应权重（若启用）
+    if use_adaptive:
+        from src.backtest.adaptive_weights import compute_adaptive_weights
+        adaptive_w, accuracy = compute_adaptive_weights(engine, analysis_date)
+        rating_weights = adaptive_w
+        print(f"[adaptive] 自适应权重 (滚动6个月准确率):")
+        for src, w in sorted(rating_weights.items(), key=lambda x: -x[1]):
+            acc = accuracy.get(src)
+            acc_str = f"{acc*100:.1f}%" if acc is not None else "N/A"
+            print(f"  {src:12s}: {w*100:.1f}% (准确率 {acc_str})")
+    else:
+        rating_weights = RATING_WEIGHTS
+
     # 4. 逐股计算加权评级
     results = []
     for code, signals in stock_signals.items():
@@ -63,7 +80,7 @@ def run_rating(analysis_date: date | None = None) -> int:
         total_weight = 0
         detail = {}
 
-        for source, weight in RATING_WEIGHTS.items():
+        for source, weight in rating_weights.items():
             sig = signals.get(source)
             if sig is None:
                 continue

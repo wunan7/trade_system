@@ -32,6 +32,27 @@ def _get_monthly_checkpoints(start: date, end: date) -> list[date]:
     return checkpoints
 
 
+def _get_weekly_checkpoints(start: date, end: date) -> list[date]:
+    """获取每周第一个交易日作为检查点"""
+    engine = get_finance_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT DISTINCT trade_date FROM stock_daily
+            WHERE trade_date >= :s AND trade_date <= :e
+            ORDER BY trade_date
+        """), {"s": start, "e": end}).fetchall()
+    all_days = [r[0] for r in rows]
+
+    checkpoints = []
+    seen_weeks = set()
+    for d in all_days:
+        key = (d.isocalendar().year, d.isocalendar()[1])
+        if key not in seen_weeks:
+            seen_weeks.add(key)
+            checkpoints.append(d)
+    return checkpoints
+
+
 def _load_fundamental_signals(engine) -> dict[str, dict]:
     """加载今日的基本面信号（screener/buffett/munger），复用于所有检查点"""
     with engine.connect() as conn:
@@ -46,6 +67,32 @@ def _load_fundamental_signals(engine) -> dict[str, dict]:
     for code, source, signal, score in rows:
         signals[code][source] = {"signal": signal, "score": float(score or 50)}
     return dict(signals)
+
+
+def _load_precomputed_signals(engine, checkpoint_date) -> dict[str, dict]:
+    """读取预计算的历史信号（所有 source）"""
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT code, source, signal, score
+            FROM stock_signals
+            WHERE date = :d
+        """), {"d": checkpoint_date}).fetchall()
+
+    signals = defaultdict(dict)
+    for code, source, signal, score in rows:
+        signals[code][source] = {"signal": signal, "score": float(score or 50)}
+    return dict(signals)
+
+
+def _has_precomputed_signals(engine, start_date, end_date) -> bool:
+    """检查是否有预计算的历史信号"""
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT COUNT(*) FROM stock_signals
+            WHERE date >= :s AND date <= :e
+              AND source IN ('screener', 'valuation', 'buffett', 'munger', 'chan')
+        """), {"s": start_date, "e": end_date}).fetchone()
+    return row[0] > 100  # 至少有 100 条
 
 
 def _load_eps_data(engine) -> dict[str, float]:

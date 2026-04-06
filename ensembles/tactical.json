@@ -1,0 +1,11 @@
+{
+  "name": "tactical",
+  "description": "牛市重仓 concentrated_v2，熊市切换到 defensive",
+  "initial_capital": 100000,
+  "sub_strategies": ["concentrated_v2", "defensive"],
+  "regime_allocations": {
+    "risk_on":  {"concentrated_v2": 0.80, "defensive": 0.20},
+    "neutral":  {"concentrated_v2": 0.60, "defensive": 0.40},
+    "risk_off": {"concentrated_v2": 0.20, "defensive": 0.80}
+  }
+}

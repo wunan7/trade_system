@@ -9,19 +9,23 @@ from sqlalchemy import text
 from src.config import PROJECT_ROOT
 from src.db.engine import get_finance_engine
 
-# 持仓文件路径（每行一个代码，如 600519）
-PORTFOLIO_FILE = PROJECT_ROOT / "portfolio.txt"
+# 持仓文件路径
+PORTFOLIO_CSV = PROJECT_ROOT / "portfolio.csv"
 
 
 def _load_portfolio() -> set[str]:
-    """读取当前持仓列表"""
-    if not PORTFOLIO_FILE.exists():
+    """从 portfolio.csv 读取当前持仓列表"""
+    import csv
+
+    if not PORTFOLIO_CSV.exists():
         return set()
     codes = set()
-    for line in PORTFOLIO_FILE.read_text(encoding="utf-8").splitlines():
-        code = line.strip()
-        if code and not code.startswith("#"):
-            codes.add(code)
+    with open(PORTFOLIO_CSV, encoding="gbk") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            code = row.get("code", "").strip()
+            if code:
+                codes.add(code)
     return codes
 
 

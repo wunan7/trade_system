@@ -56,7 +56,7 @@ def cmd_rate(args):
     from src.engine.rating import run_rating
 
     analysis_date = date.fromisoformat(args.date) if args.date else date.today()
-    count = run_rating(analysis_date)
+    count = run_rating(analysis_date, use_adaptive=getattr(args, "adaptive", False))
     print(f"\n评级完成, 写入 integrated_ratings: {count} 行")
 
 
@@ -64,12 +64,19 @@ def cmd_briefing(args):
     """生成并推送每日简报"""
     from src.output.briefing import generate_briefing
     from src.output.push import push_briefing
+    from pathlib import Path
 
     analysis_date = date.fromisoformat(args.date) if args.date else date.today()
     content = generate_briefing(analysis_date)
 
+    # 始终保存到文件
+    out = Path("reports") / f"briefing_{analysis_date}.md"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(content, encoding="utf-8")
+    print(f"简报已保存: {out}")
+
     if args.dry_run:
-        print(content)
+        pass  # 仅保存，不推送
     else:
         push_briefing(content)
         print("简报已推送")
@@ -140,19 +147,38 @@ def cmd_advanced_backtest(args):
     """增强策略回测"""
     from src.backtest.advanced_strategy import run_advanced_backtest
     from pathlib import Path
+    from datetime import datetime
 
     end = date.fromisoformat(args.end) if args.end else date(2026, 3, 27)
-    start = date.fromisoformat(args.start) if args.start else end - __import__("datetime").timedelta(days=180)
+    start = date.fromisoformat(args.start) if args.start else end - __import__("datetime").timedelta(days=365*3)
+    strategy_name = args.strategy or "default"
 
-    content = run_advanced_backtest(start, end)
+    content = run_advanced_backtest(start, end, strategy_name=strategy_name)
 
-    if args.dry_run:
-        print(content)
-    else:
-        out = Path("reports") / f"advanced_backtest_{end}.md"
-        out.parent.mkdir(exist_ok=True)
-        out.write_text(content, encoding="utf-8")
-        print(f"\n报告已保存: {out}")
+    now = datetime.now().strftime("%Y%m%d_%H%M")
+    out = Path("reports") / f"backtest_{strategy_name}_{now}.md"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(content, encoding="utf-8")
+    print(f"\n报告已保存: {out}")
+
+
+def cmd_ensemble_backtest(args):
+    """多策略组合回测"""
+    from src.backtest.ensemble_strategy import run_ensemble_backtest
+    from pathlib import Path
+    from datetime import datetime
+
+    end = date.fromisoformat(args.end) if args.end else date(2026, 3, 27)
+    start = date.fromisoformat(args.start) if args.start else end - __import__("datetime").timedelta(days=365*3)
+    ensemble_name = args.ensemble or "tactical"
+
+    content = run_ensemble_backtest(start, end, ensemble_name=ensemble_name)
+
+    now = datetime.now().strftime("%Y%m%d_%H%M")
+    out = Path("reports") / f"ensemble_backtest_{ensemble_name}_{now}.md"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(content, encoding="utf-8")
+    print(f"\n报告已保存: {out}")
 
 
 def cmd_weekly_backtest(args):
@@ -174,6 +200,31 @@ def cmd_weekly_backtest(args):
         print(f"\n报告已保存: {out}")
 
 
+def cmd_precompute(args):
+    """预计算历史信号"""
+    from src.backtest.precompute import run_precompute
+
+    end = date.fromisoformat(args.end) if args.end else date(2026, 3, 27)
+    start = date.fromisoformat(args.start) if args.start else end - __import__("datetime").timedelta(days=365*3)
+    sources = [args.source] if args.source else None
+
+    run_precompute(start, end, sources=sources, skip_chan=args.skip_chan)
+
+
+def cmd_list_strategies(args):
+    """列出所有策略"""
+    from src.backtest.strategy_config import list_strategies
+    strategies = list_strategies()
+    if not strategies:
+        print("暂无策略文件（请在 strategies/ 目录下创建 .json 文件）")
+        return
+    print(f"共 {len(strategies)} 个策略:\n")
+    for s in strategies:
+        print(f"  {s['name']:20s} {s['description']}")
+        print(f"  {'':20s} {s['file']}")
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(description="A股集成决策引擎")
     sub = parser.add_subparsers(dest="command")
@@ -189,6 +240,8 @@ def main():
     # rate
     p_rate = sub.add_parser("rate", help="运行综合评级")
     p_rate.add_argument("--date", type=str, default=None, help="分析日期 YYYY-MM-DD")
+    p_rate.add_argument("--adaptive", action="store_true",
+                        help="启用自适应权重（基于历史信号准确率）")
 
     # briefing
     p_brief = sub.add_parser("briefing", help="生成并推送每日简报")
@@ -219,13 +272,29 @@ def main():
     p_adv = sub.add_parser("advanced-backtest", help="增强策略回测")
     p_adv.add_argument("--start", type=str, default=None, help="起始日期")
     p_adv.add_argument("--end", type=str, default=None, help="结束日期")
-    p_adv.add_argument("--dry-run", action="store_true")
+    p_adv.add_argument("--strategy", type=str, default=None, help="策略名称（对应 strategies/*.json）")
+
+    # ensemble-backtest
+    p_ens = sub.add_parser("ensemble-backtest", help="多策略组合回测")
+    p_ens.add_argument("--start", type=str, default=None, help="起始日期")
+    p_ens.add_argument("--end", type=str, default=None, help="结束日期")
+    p_ens.add_argument("--ensemble", type=str, default=None, help="组合名称（对应 ensembles/*.json）")
+
+    # list-strategies
+    sub.add_parser("list-strategies", help="列出所有策略")
 
     # weekly-backtest
     p_wk = sub.add_parser("weekly-backtest", help="每周检查策略回测")
     p_wk.add_argument("--start", type=str, default=None, help="起始日期")
     p_wk.add_argument("--end", type=str, default=None, help="结束日期")
     p_wk.add_argument("--dry-run", action="store_true")
+
+    # precompute
+    p_pc = sub.add_parser("precompute", help="预计算历史信号")
+    p_pc.add_argument("--start", type=str, default=None, help="起始日期")
+    p_pc.add_argument("--end", type=str, default=None, help="结束日期")
+    p_pc.add_argument("--source", type=str, default=None, help="指定单个 source")
+    p_pc.add_argument("--skip-chan", action="store_true", help="跳过缠论计算")
 
     args = parser.parse_args()
 
@@ -238,7 +307,10 @@ def main():
         "backtest": cmd_backtest,
         "hist-backtest": cmd_hist_backtest,
         "advanced-backtest": cmd_advanced_backtest,
+        "ensemble-backtest": cmd_ensemble_backtest,
         "weekly-backtest": cmd_weekly_backtest,
+        "precompute": cmd_precompute,
+        "list-strategies": cmd_list_strategies,
     }
 
     handler = commands.get(args.command)
