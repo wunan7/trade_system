@@ -125,7 +125,8 @@ class AdvancedStrategy:
                           consensus_mult: float = 1.0,
                           accuracy_mult: float = 1.0,
                           liquidity_mult: float = 1.0,
-                          resonance_strength: float = 0.0) -> float:
+                          resonance_strength: float = 0.0,
+                          ml_boost: float = 1.0) -> float:
         base = self.config.position_sizes.get(rating, 0.0)
 
         # 宏观择时仓位调整
@@ -141,15 +142,16 @@ class AdvancedStrategy:
 
         if resonance:
             if self.config.resonance_strength_enabled and resonance_strength > 0:
-                # 多层级共振：根据共振强度动态计算 boost
                 dynamic_boost = 1.0 + resonance_strength * self.config.resonance_max_boost
                 base *= dynamic_boost
             else:
-                # 传统二元共振：固定 boost
                 base *= self.config.resonance_boost
 
         if score > self.config.high_score_threshold:
             base *= self.config.high_score_boost
+
+        # ML 涨停预测信号加仓
+        base *= ml_boost
 
         return min(base, self.config.max_single_position)
 
@@ -367,6 +369,15 @@ class AdvancedStrategy:
                             self.config.liquidity_low_mult,
                         )
 
+                # 计算 ML 信号乘数
+                ml_boost = 1.0
+                if self.config.ml_signals_enabled:
+                    ml_score = info.get("ml_score", 0.0)
+                    if ml_score >= 0.85:
+                        ml_boost = self.config.ml_boost_strong
+                    elif ml_score >= 0.70:
+                        ml_boost = self.config.ml_boost_mid
+
                 target_pct = self.get_position_size(
                     info["rating"], info["score"], info.get("resonance_buy", False),
                     regime_multiplier=regime_multiplier,
@@ -375,6 +386,7 @@ class AdvancedStrategy:
                     accuracy_mult=accuracy_mult,
                     liquidity_mult=liquidity_mult,
                     resonance_strength=info.get("resonance_strength", 0.0),
+                    ml_boost=ml_boost,
                 )
                 if target_pct > 0:
                     target_positions[code] = target_pct
@@ -673,6 +685,14 @@ def run_advanced_backtest(
         )
         print(f"历史准确率计算完成: {len(accuracy_dict)} 个信号源")
 
+    # ML 涨停预测信号
+    ml_signals = None
+    if config.ml_signals_enabled:
+        print("启用 ML 涨停预测信号")
+        from src.backtest.ml_signals import load_ml_signals
+        ml_signals = load_ml_signals(config.ml_signals_path, start_date, end_date)
+        print(f"ML 信号加载完成: {len(ml_signals)} 个交易日")
+
     strategy = AdvancedStrategy(config)
 
     results = []
@@ -726,6 +746,12 @@ def run_advanced_backtest(
                     continue
                 rating, score = _compute_rating(sigs)
                 ratings[code] = {"rating": rating, "score": score, "resonance_buy": False, "resonance_strength": 0.0}
+
+        # 为每只股票附加 ML 分数
+        if ml_signals:
+            from src.backtest.ml_signals import get_ml_score_at_checkpoint
+            for code in ratings:
+                ratings[code]["ml_score"] = get_ml_score_at_checkpoint(ml_signals, code, cp)
 
         # 计算宏观择时仓位乘数（若启用）
         regime_multiplier = 1.0
@@ -1020,6 +1046,15 @@ def _format_advanced_report(
         lines.append(f"- 估值最低分: {config.contrarian_valuation_min}")
         lines.append(f"- 仓位比例: {config.contrarian_position_ratio*100:.0f}% (A级基础仓位)")
         lines.append("- 触发条件: valuation ≥ 85 AND chan = bearish")
+        lines.append("")
+
+    # ML 涨停预测信号参数（仅在启用时输出）
+    if config.ml_signals_enabled:
+        lines.append("**ML 涨停预测信号：**")
+        lines.append("")
+        lines.append(f"- 信号路径: {config.ml_signals_path}")
+        lines.append(f"- 强信号加仓 (score >= 0.85): {config.ml_boost_strong}x")
+        lines.append(f"- 中信号加仓 (score >= 0.70): {config.ml_boost_mid}x")
         lines.append("")
 
     # 自适应权重演化（仅在启用时输出）

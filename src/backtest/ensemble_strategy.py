@@ -162,6 +162,31 @@ class EnsembleStrategy:
         return sum(len(strat.holdings) for strat in self.sub_strategies.values())
 
 
+def _build_ml_ratings(ml_signals: dict, checkpoint: date, prices: dict) -> dict:
+    """基于 ML 涨停预测信号构建评级，Top 50 股票直接给 A+ 评级"""
+    from src.backtest.ml_signals import get_ml_score_at_checkpoint
+    ratings = {}
+    # 找到最近的信号日
+    best_date = None
+    for d in ml_signals:
+        if d <= checkpoint and (best_date is None or d > best_date):
+            best_date = d
+    if best_date is None:
+        return ratings
+    for code, score in ml_signals[best_date].items():
+        if code not in prices:
+            continue
+        if score >= 0.70:
+            ratings[code] = {
+                "rating": "A+" if score >= 0.85 else "A",
+                "score": score * 100,
+                "resonance_buy": False,
+                "resonance_strength": 0.0,
+                "ml_score": score,
+            }
+    return ratings
+
+
 def run_ensemble_backtest(
     start_date: date | None = None,
     end_date: date | None = None,
@@ -209,6 +234,21 @@ def run_ensemble_backtest(
         from src.backtest.atr import compute_all_atr
         atr_data = compute_all_atr(engine, start_date, end_date)
 
+    # 加载 ML 信号（如果有 ml_momentum 子策略）
+    ml_signals = None
+    has_ml = any(s.config.name == "ml_momentum" for s in ensemble.sub_strategies.values())
+    if has_ml:
+        print("加载 ML 涨停预测信号")
+        from src.backtest.ml_signals import load_ml_signals
+        ml_path = None
+        for s in ensemble.sub_strategies.values():
+            if s.config.name == "ml_momentum":
+                ml_path = r"C:\Users\wunan\GITHUB\vnpy\examples\limit_up_prediction\signals"
+                break
+        if ml_path:
+            ml_signals = load_ml_signals(ml_path, start_date, end_date)
+            print(f"ML 信号加载完成: {len(ml_signals)} 个交易日")
+
     # 初始化资金分配
     first_regime = regime_data.get(checkpoints[0], ("neutral", {}))[0]
     ensemble.allocate_initial_capital(first_regime)
@@ -248,17 +288,21 @@ def run_ensemble_backtest(
 
         # 4. 执行各个子策略的 rebalance
         for name, strategy in ensemble.sub_strategies.items():
-            # 子策略自己算评级
-            sub_ratings = {}
-            for code, info in ratings.items():
-                signals = info["detail"]
-                rating, score = _compute_rating_with_config(signals, strategy.config)
-                sub_ratings[code] = {
-                    "rating": rating,
-                    "score": score,
-                    "detail": signals,
-                    "resonance_buy": False
-                }
+            # ML 动量子策略：直接用 ML 信号选股
+            if ml_signals and strategy.config.name == "ml_momentum":
+                sub_ratings = _build_ml_ratings(ml_signals, cp, prices)
+            else:
+                # 常规子策略：用基本面评级
+                sub_ratings = {}
+                for code, info in ratings.items():
+                    signals = info["detail"]
+                    rating, score = _compute_rating_with_config(signals, strategy.config)
+                    sub_ratings[code] = {
+                        "rating": rating,
+                        "score": score,
+                        "detail": signals,
+                        "resonance_buy": False
+                    }
 
             strategy.rebalance(cp, sub_ratings, prices, atr_data=atr_data)
 

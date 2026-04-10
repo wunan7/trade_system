@@ -1,0 +1,11 @@
+{
+  "name": "ml_tactical",
+  "description": "主力价值仓(85%) + ML动量探索仓(15%)，regime切换时动态调整",
+  "initial_capital": 100000,
+  "sub_strategies": ["concentrated_v2", "ml_momentum"],
+  "regime_allocations": {
+    "risk_on":  {"concentrated_v2": 0.75, "ml_momentum": 0.25},
+    "neutral":  {"concentrated_v2": 0.85, "ml_momentum": 0.15},
+    "risk_off": {"concentrated_v2": 0.90, "ml_momentum": 0.10}
+  }
+}

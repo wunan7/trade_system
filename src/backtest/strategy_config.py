@@ -117,6 +117,12 @@ class StrategyConfig:
     contrarian_valuation_min: float = 85
     contrarian_position_ratio: float = 0.5
 
+    # ML 涨停预测信号（可选，默认关闭）
+    ml_signals_enabled: bool = False
+    ml_signals_path: str = r"C:\Users\wunan\GITHUB\vnpy\examples\limit_up_prediction\signals"
+    ml_boost_strong: float = 1.3
+    ml_boost_mid: float = 1.15
+
 
 def load_strategy(name: str = "default") -> StrategyConfig:
     """从 strategies/{name}.json 加载策略配置"""
